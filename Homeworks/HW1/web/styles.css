@@ -1,0 +1,114 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 2rem;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #e5e7eb;
+
+  /* FULLSCREEN GIF BACKGROUND */
+  background: #020617 url("static/background.gif") no-repeat center center fixed;
+  background-size: cover;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: #f9fafb;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.table-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  /* slightly transparent so the gif is visible behind */
+  background: rgba(2, 6, 23, 0.9);
+  border-radius: 12px;
+  padding: 1rem 1.5rem 1.5rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+  border: 1px solid #1f2937;
+}
+
+.table-scroll {
+  max-height: 70vh;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+thead {
+  background: #020617;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+th,
+td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid #1f2937;
+}
+
+th {
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+tbody tr:nth-child(even) {
+  background: #020617;
+}
+
+tbody tr:nth-child(odd) {
+  background: #020617;
+}
+
+tbody tr:hover {
+  background: #111827;
+}
+
+.num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.languages,
+.activity {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.75rem;
+  color: #e5e7eb;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.user {
+  font-weight: 600;
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
+.status {
+  max-width: 1200px;
+  margin: 0.5rem auto 1rem;
+  font-size: 0.85rem;
+  color: #e5e7eb;
+  text-align: center;
+  background: rgba(2, 6, 23, 0.8);
+  border-radius: 9999px;
+  padding: 0.4rem 1rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+}
