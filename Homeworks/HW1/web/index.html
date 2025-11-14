@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GitHub Stats (from out.csv)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 2rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 1.5rem;
+      color: #f9fafb;
+    }
+
+    .table-wrapper {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: #020617;
+      border-radius: 12px;
+      padding: 1rem 1.5rem 1.5rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+      border: 1px solid #1f2937;
+    }
+
+    .table-scroll {
+      max-height: 70vh;
+      overflow: auto;
+      padding-right: 0.25rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    thead {
+      background: #020617;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    th, td {
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid #1f2937;
+    }
+
+    th {
+      font-weight: 600;
+      color: #9ca3af;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #020617;
+    }
+
+    tbody tr:nth-child(odd) {
+      background: #020617;
+    }
+
+    tbody tr:hover {
+      background: #111827;
+    }
+
+    .num {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .languages, .activity {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.75rem;
+      color: #e5e7eb;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .user {
+      font-weight: 600;
+      color: #fbbf24;
+      white-space: nowrap;
+    }
+
+    .status {
+      max-width: 1200px;
+      margin: 0.5rem auto 1rem;
+      font-size: 0.85rem;
+      color: #9ca3af;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>GitHub Users Stats</h1>
+
+  <div class="status" id="status">Loading data from <code>out.csv</code>…</div>
+
+  <div class="table-wrapper">
+    <div class="table-scroll">
+      <table id="stats-table">
+        <thead>
+          <!-- Will be generated automatically -->
+        </thead>
+        <tbody>
+          <!-- Will be generated automatically -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const DELIM = ';';
+
+    function parseCsv(text) {
+      const lines = text.trim().split(/\r?\n/);
+      return lines.map(line => line.split(DELIM));
+    }
+
+    function buildTable(data) {
+      const table = document.getElementById('stats-table');
+      const thead = table.querySelector('thead');
+      const tbody = table.querySelector('tbody');
+
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+
+      if (!data.length) return;
+
+      const [header, ...rows] = data;
+
+      // Header
+      const trHead = document.createElement('tr');
+      header.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        trHead.appendChild(th);
+      });
+      thead.appendChild(trHead);
+
+      // Body
+      rows.forEach(row => {
+        const tr = document.createElement('tr');
+        row.forEach((cell, idx) => {
+          const td = document.createElement('td');
+          const colName = header[idx];
+
+          if (colName === 'Repo' || colName === 'Followers' || colName === 'Forks') {
+            td.className = 'num';
+          } else if (colName === 'Languages') {
+            td.className = 'languages';
+          } else if (colName === 'Activity') {
+            td.className = 'activity';
+          } else if (colName === 'User') {
+            td.className = 'user';
+          }
+
+          td.textContent = cell;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function loadCsv() {
+      const status = document.getElementById('status');
+      try {
+        const res = await fetch('out.csv');
+        if (!res.ok) {
+          status.textContent = 'Failed to load out.csv (HTTP ' + res.status + '). Make sure the file exists.';
+          return;
+        }
+        const text = await res.text();
+        const data = parseCsv(text);
+        buildTable(data);
+        status.textContent = 'The data is loaded successfully from out.csv.';
+      } catch (err) {
+        console.error(err);
+        status.textContent = 'An error occurred while reading out.csv. See the console (F12) for details.';
+      }
+    }
+
+    loadCsv();
+  </script>
+</body>
+</html>
