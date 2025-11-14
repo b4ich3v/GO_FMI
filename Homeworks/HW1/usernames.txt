@@ -1,3 +1,7 @@
 torvalds
 golang
 octocat
+gvanrossum
+tj
+hashicorp
+kubernetes
