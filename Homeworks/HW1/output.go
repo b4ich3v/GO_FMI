@@ -13,7 +13,7 @@ func PrintStatsTable(users []UserStats) {
 
 	writer.Comma = ';'
 
-	writer.Write([]string{"User", "Repo", "Followers", "Forks", "Languages", "Activity"})
+	writer.Write([]string{"User", "Repos", "Followers", "Forks", "Languages", "Activity"})
 
 	for _, u := range users {
 		langs := summarizeLangs(u.LangBytes)
