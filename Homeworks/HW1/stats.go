@@ -23,13 +23,21 @@ func ComputeStats(user *GitHubUser, repos []GitHubRepo, langs []map[string]int) 
 
 	for _, repo := range repos {
 		stats.TotalForks += repo.Forks
-		y := repo.CreatedAt.Year()
-		stats.ReposPerYear[y]++
+
+		createdYear := repo.CreatedAt.Year()
+		if createdYear > 0 {
+			stats.ReposPerYear[createdYear]++
+		}
+
+		updatedYear := repo.UpdatedAt.Year()
+		if updatedYear > 0 && updatedYear != createdYear {
+			stats.ReposPerYear[updatedYear]++
+		}
 	}
 
 	for _, m := range langs {
-		for lang, size := range m {
-			stats.LangBytes[lang] += size
+		for lang, bytes := range m {
+			stats.LangBytes[lang] += bytes
 		}
 	}
 
