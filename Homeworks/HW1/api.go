@@ -19,6 +19,7 @@ type GitHubRepo struct {
 	Name      string    `json:"name"`
 	Forks     int       `json:"forks_count"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func FetchUser(username string) (*GitHubUser, error) {
