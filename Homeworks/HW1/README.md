@@ -20,6 +20,6 @@ make run
 ```
 cd web
 python3 -m http.server 8080
-# then open in browser:
-http://localhost:8080/index.html
 ```
+then open in browser:
+`http://localhost:8080/index.html`
