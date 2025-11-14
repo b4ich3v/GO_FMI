@@ -11,7 +11,10 @@ import (
 func PrintStatsTable(users []UserStats) {
 	writer := csv.NewWriter(os.Stdout)
 
+	// Използваме ; като разделител между колоните
 	writer.Comma = ';'
+
+	// Заглавия
 	writer.Write([]string{"User", "Repo", "Followers", "Forks", "Languages", "Activity"})
 
 	for _, u := range users {
