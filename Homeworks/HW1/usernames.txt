@@ -5,3 +5,10 @@ gvanrossum
 tj
 hashicorp
 kubernetes
+microsoft
+google
+apple
+rust-lang
+vercel
+nodejs
+django
