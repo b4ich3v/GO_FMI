@@ -9,7 +9,7 @@ body {
   color: #e5e7eb;
 
   /* FULLSCREEN GIF BACKGROUND */
-  background: #020617 url("static/background.gif") no-repeat center center fixed;
+  background: #020617 url("static/background.jpg") no-repeat center center fixed;
   background-size: cover;
 }
 
