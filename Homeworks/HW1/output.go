@@ -20,7 +20,7 @@ func PrintStatsTable(users []UserStats) {
 
 	// Write one record per user
 	for _, currentUser := range users {
-		langs := summarizeLangs(currentUser.LangBytes)
+		languages := summarizeLangs(currentUser.LangBytes)
 		years := summarizeYears(currentUser.ReposPerYear)
 
 		record := []string{
@@ -28,7 +28,7 @@ func PrintStatsTable(users []UserStats) {
 			intToString(currentUser.TotalRepos),
 			intToString(currentUser.Followers),
 			intToString(currentUser.TotalForks),
-			langs,
+			languages,
 			years,
 		}
 
@@ -91,11 +91,11 @@ func intToString(inputNumber int) string {
 }
 
 // summarizeLangs builds a "Lang:Bytes" comma-separated string from a map of language usage
-func summarizeLangs(mapForLangs map[string]int) string {
+func summarizeLangs(mapForLanguages map[string]int) string {
 	var buffer strings.Builder
 	separator := ""
 
-	for lang, bytes := range mapForLangs {
+	for lang, bytes := range mapForLanguages {
 		fmt.Fprintf(&buffer, "%s%s:%d", separator, lang, bytes)
 		separator = ", "
 	}
