@@ -101,38 +101,3 @@ func fetchJSON(url string, target interface{}) error {
 
 	return json.NewDecoder(response.Body).Decode(target)
 }
-			// skip repos we failed to fetch languages for
-			continue
-		}
-		all = append(all, langs)
-	}
-
-	return all
-}
-
-// fetchJSON performs an HTTP GET to the given URL and decodes the JSON response into target
-func fetchJSON(url string, target interface{}) error {
-	client := &http.Client{Timeout: 10 * time.Second}
-	request, err := http.NewRequest("GET", url, nil)
-
-	if err != nil {
-		return err
-	}
-	request.Header.Set("User-Agent", "GitHubStatsClient")
-
-	if token := os.Getenv("GOLANG_TOKEN"); token != "" {
-		request.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	response, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %s", response.Status)
-	}
-
-	return json.NewDecoder(response.Body).Decode(target)
-}
