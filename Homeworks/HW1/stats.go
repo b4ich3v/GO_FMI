@@ -25,14 +25,14 @@ func addActivityYear(activity map[int]int, inputTime time.Time) {
 
 // mergeLangUsage add bytes from source to destination
 func mergeLangUsage(destination, source map[string]int) {
-	for lang, bytes := range source {
-		destination[lang] += bytes
+	for currentLanguage, bytes := range source {
+		destination[currentLanguage] += bytes
 	}
 }
 
 // ComputeStats aggregates all relevant statistics for a GitHub user:
 // total repos, followers, total forks, language usage and activity per year
-func ComputeStats(user *GitHubUser, repos []GitHubRepo, langs []map[string]int) UserStats {
+func ComputeStats(user *GitHubUser, repos []GitHubRepo, languages []map[string]int) UserStats {
 	stats := UserStats{
 		Name:         user.Name,
 		TotalRepos:   user.PublicRepos,
@@ -55,7 +55,7 @@ func ComputeStats(user *GitHubUser, repos []GitHubRepo, langs []map[string]int) 
 		}
 	}
 
-	for _, currentLangMap := range langs {
+	for _, currentLangMap := range languages {
 		mergeLangUsage(stats.LangBytes, currentLangMap)
 	}
 
