@@ -96,7 +96,7 @@ func fetchJSON(apiURL string, target interface{}) error {
 	}
 	defer resp.Body.Close()
 
-	// Treat any non-200 response as an error.
+	// Treat any non-200 response as an error
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
