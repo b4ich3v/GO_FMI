@@ -5,9 +5,9 @@ import (
 	"os"
 )
 
-// return true if the input byte string representation is equal to [' ', '\t', '\n', '\r', '\f', '\v']
-func isSpace(inputByte byte) bool {
-	switch inputByte {
+// isSpace reports whether b is an ASCII whitespace character
+func isSpace(b byte) bool {
+	switch b {
 	case ' ', '\t', '\n', '\r', '\f', '\v':
 		return true
 	default:
@@ -15,41 +15,44 @@ func isSpace(inputByte byte) bool {
 	}
 }
 
-// removes all the whitespaces in the start and in the end
-func trimSpace(inputString string) string {
-	startIndex := 0
-	endIndex := len(inputString)
+// trimSpace removes leading and trailing ASCII whitespace from s
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
 
-	// loop for whitespaces in the front
-	for startIndex < endIndex && isSpace(inputString[startIndex]) {
-		startIndex += 1
+	// skip whitespace at the beginning
+	for start < end && isSpace(s[start]) {
+		start++
 	}
 
-	// loop for whitespaces in the back
-	for endIndex > startIndex && isSpace(inputString[endIndex-1]) {
-		endIndex -= 1
+	// skip whitespace at the end
+	for end > start && isSpace(s[end-1]) {
+		end--
 	}
 
-	return inputString[startIndex:endIndex]
+	return s[start:end]
 }
 
-// read line by line in file (validate + parse)
+// ReadUsernamesFromFile reads one username per line from the given file path,
+// trims surrounding whitespace and skips empty lines
 func ReadUsernamesFromFile(path string) ([]string, error) {
-	file, err := os.Open(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer f.Close()
 
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(f)
 	var usernames []string
+
 	for scanner.Scan() {
 		line := trimSpace(scanner.Text())
 
-		// to avoid empty lines
+		// ignore empty lines
 		if line != "" {
 			usernames = append(usernames, line)
 		}
 	}
+
 	return usernames, scanner.Err()
 }
