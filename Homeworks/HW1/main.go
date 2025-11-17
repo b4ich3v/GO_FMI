@@ -9,6 +9,7 @@ import (
 )
 
 func main() {
+	// Load environment variables from .env (e.g. GITHUB_TOKEN, GITHUB_API_URL)
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -24,6 +25,7 @@ func main() {
 		log.Fatalf("Error reading usernames: %v", err)
 	}
 
+	// For each username: fetch data from GitHub and compute statistics
 	var results []UserStats
 	for _, currentUsername := range usernames {
 		user, err := FetchUser(currentUsername)
@@ -43,5 +45,6 @@ func main() {
 		results = append(results, stats)
 	}
 
+	// Print final statistics table (CSV) to stdout
 	PrintStatsTable(results)
 }
