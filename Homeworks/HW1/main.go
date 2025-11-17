@@ -25,20 +25,20 @@ func main() {
 	}
 
 	var results []UserStats
-	for _, username := range usernames {
-		user, err := FetchUser(username)
+	for _, currentUsername := range usernames {
+		user, err := FetchUser(currentUsername)
 		if err != nil {
-			log.Printf("Skipping user %s: %v", username, err)
+			log.Printf("Skipping user %s: %v", currentUsername, err)
 			continue
 		}
 
-		repos, err := FetchRepos(username)
+		repos, err := FetchRepos(currentUsername)
 		if err != nil {
-			log.Printf("Skipping repos for %s: %v", username, err)
+			log.Printf("Skipping repos for %s: %v", currentUsername, err)
 			continue
 		}
 
-		languages := FetchAllLanguages(username, repos)
+		languages := FetchAllLanguages(currentUsername, repos)
 		stats := ComputeStats(user, repos, languages)
 		results = append(results, stats)
 	}
