@@ -26,10 +26,10 @@ type GitHubRepo struct {
 
 // FetchUser retrieves basic profile information for a given GitHub username
 func FetchUser(username string) (*GitHubUser, error) {
-	url := userURL(username)
+	apiURL := userURL(username)
 	var user GitHubUser
 
-	if err := fetchJSON(url, &user); err != nil {
+	if err := fetchJSON(apiURL, &user); err != nil {
 		return nil, err
 	}
 	return &user, nil
@@ -37,10 +37,10 @@ func FetchUser(username string) (*GitHubUser, error) {
 
 // FetchRepos retrieves the list of public repositories for a given user
 func FetchRepos(username string) ([]GitHubRepo, error) {
-	url := reposURL(username)
+	apiURL := reposURL(username)
 	var repos []GitHubRepo
 
-	if err := fetchJSON(url, &repos); err != nil {
+	if err := fetchJSON(apiURL, &repos); err != nil {
 		return nil, err
 	}
 
@@ -49,55 +49,57 @@ func FetchRepos(username string) ([]GitHubRepo, error) {
 
 // FetchLanguages retrieves the language usage (bytes per language) for a given repo
 func FetchLanguages(username, repo string) (map[string]int, error) {
-	url := languagesURL(username, repo)
-	var mapForLanguages map[string]int
+	apiURL := languagesURL(username, repo)
+	var languageUsage map[string]int
 
-	if err := fetchJSON(url, &mapForLanguages); err != nil {
+	if err := fetchJSON(apiURL, &languageUsage); err != nil {
 		return nil, err
 	}
 
-	return mapForLanguages, nil
+	return languageUsage, nil
 }
 
 // FetchAllLanguages fetches languages for all repos and returns a slice of language maps
 func FetchAllLanguages(username string, repos []GitHubRepo) []map[string]int {
-	var all []map[string]int
+	var allLanguages []map[string]int
 
-	for _, currentRepo := range repos {
-		languages, err := FetchLanguages(username, currentRepo.Name)
+	for _, repo := range repos {
+		languages, err := FetchLanguages(username, repo.Name)
 		if err != nil {
-			// skip repos we failed to fetch languages for
+			// Skip repos we failed to fetch languages for
 			continue
 		}
-		all = append(all, languages)
+		allLanguages = append(allLanguages, languages)
 	}
 
-	return all
+	return allLanguages
 }
 
 // fetchJSON performs an HTTP GET to the given URL and decodes the JSON response into target
-func fetchJSON(url string, target interface{}) error {
+func fetchJSON(apiURL string, target interface{}) error {
 	client := &http.Client{Timeout: 10 * time.Second}
-	request, err := http.NewRequest("GET", url, nil)
 
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
 	}
-	request.Header.Set("User-Agent", "GitHubStatsClient")
+	req.Header.Set("User-Agent", "GitHubStatsClient")
 
+	// Optional: authenticate with a personal access token if GOLANG_TOKEN is set
 	if token := os.Getenv("GOLANG_TOKEN"); token != "" {
-		request.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	response, err := client.Do(request)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer resp.Body.Close()
 
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %s", response.Status)
+	// Treat any non-200 response as an error.
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
-	return json.NewDecoder(response.Body).Decode(target)
+	return json.NewDecoder(resp.Body).Decode(target)
 }
