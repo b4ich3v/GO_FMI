@@ -85,8 +85,8 @@ func fetchJSON(apiURL string, target interface{}) error {
 	}
 	req.Header.Set("User-Agent", "GitHubStatsClient")
 
-	// Optional: authenticate with a personal access token if GOLANG_TOKEN is set
-	if token := os.Getenv("GOLANG_TOKEN"); token != "" {
+	// Optional: authenticate with a personal access token if GITHUB_TOKEN is set
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
