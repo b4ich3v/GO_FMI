@@ -11,22 +11,22 @@ type UserStats struct {
 	ReposPerYear map[int]int
 }
 
-// addActivityYear increases the activity count for the year of inputTime, if valid
-func addActivityYear(activity map[int]int, inputTime time.Time) {
-	if inputTime.IsZero() {
+// addActivityYear increases the activity count for the year of t, if valid
+func addActivityYear(activity map[int]int, t time.Time) {
+	if t.IsZero() {
 		return
 	}
 
-	year := inputTime.Year()
+	year := t.Year()
 	if year > 0 {
-		activity[year] += 1
+		activity[year]++
 	}
 }
 
-// mergeLangUsage add bytes from source to destination
+// mergeLangUsage adds bytes from source to destination by language
 func mergeLangUsage(destination, source map[string]int) {
-	for currentLanguage, bytes := range source {
-		destination[currentLanguage] += bytes
+	for language, bytes := range source {
+		destination[language] += bytes
 	}
 }
 
@@ -41,22 +41,25 @@ func ComputeStats(user *GitHubUser, repos []GitHubRepo, languages []map[string]i
 		ReposPerYear: make(map[int]int),
 	}
 
+	// Fallback to login if the user has no display name
 	if stats.Name == "" {
 		stats.Name = user.Login
 	}
 
-	for _, currentRepo := range repos {
-		stats.TotalForks += currentRepo.Forks
+	// Aggregate forks and activity per year from repositories
+	for _, repo := range repos {
+		stats.TotalForks += repo.Forks
 
-		addActivityYear(stats.ReposPerYear, currentRepo.CreatedAt)
+		addActivityYear(stats.ReposPerYear, repo.CreatedAt)
 
-		if !currentRepo.UpdatedAt.IsZero() && currentRepo.UpdatedAt.Year() != currentRepo.CreatedAt.Year() {
-			addActivityYear(stats.ReposPerYear, currentRepo.UpdatedAt)
+		if !repo.UpdatedAt.IsZero() && repo.UpdatedAt.Year() != repo.CreatedAt.Year() {
+			addActivityYear(stats.ReposPerYear, repo.UpdatedAt)
 		}
 	}
 
-	for _, currentLangMap := range languages {
-		mergeLangUsage(stats.LangBytes, currentLangMap)
+	// Aggregate language usage across all repositories
+	for _, langMap := range languages {
+		mergeLangUsage(stats.LangBytes, langMap)
 	}
 
 	return stats
