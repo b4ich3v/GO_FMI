@@ -9,9 +9,8 @@ import (
 )
 
 func main() {
-	// Load environment variables from .env (e.g. GITHUB_TOKEN, GITHUB_API_URL)
-	err := godotenv.Load()
-	if err != nil {
+	// Load environment variables from .env (e.g. GOLANG_TOKEN, GITHUB_API_URL)
+	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file")
 	}
 
@@ -20,27 +19,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	usernames, err := ReadUsernamesFromFile(os.Args[1])
+	inputPath := os.Args[1]
+
+	// Read GitHub usernames from the input file (one username per line)
+	usernames, err := ReadUsernamesFromFile(inputPath)
 	if err != nil {
 		log.Fatalf("Error reading usernames: %v", err)
 	}
 
-	// For each username: fetch data from GitHub and compute statistics
 	var results []UserStats
-	for _, currentUsername := range usernames {
-		user, err := FetchUser(currentUsername)
+
+	// For each username: fetch data from GitHub and compute statistics
+	for _, username := range usernames {
+		user, err := FetchUser(username)
 		if err != nil {
-			log.Printf("Skipping user %s: %v", currentUsername, err)
+			log.Printf("Skipping user %s: %v", username, err)
 			continue
 		}
 
-		repos, err := FetchRepos(currentUsername)
+		repos, err := FetchRepos(username)
 		if err != nil {
-			log.Printf("Skipping repos for %s: %v", currentUsername, err)
+			log.Printf("Skipping repos for %s: %v", username, err)
 			continue
 		}
 
-		languages := FetchAllLanguages(currentUsername, repos)
+		languages := FetchAllLanguages(username, repos)
 		stats := ComputeStats(user, repos, languages)
 		results = append(results, stats)
 	}
