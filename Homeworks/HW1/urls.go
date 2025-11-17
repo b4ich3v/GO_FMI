@@ -2,7 +2,7 @@ package main
 
 import "os"
 
-// load the GITHUB_API_URL variable + fallback mechanism
+// githubBaseURL returns the base URL for the GitHub API
 func githubBaseURL() string {
 	if base := os.Getenv("GITHUB_API_URL"); base != "" {
 		return base
@@ -10,17 +10,17 @@ func githubBaseURL() string {
 	return "https://api.github.com"
 }
 
-// https://api.github.com/users/{username}
+// userURL returns the API URL for fetching user information
 func userURL(username string) string {
 	return githubBaseURL() + "/users/" + username
 }
 
-// https://api.github.com/users/{username}/repos?per_page=100
+// reposURL returns the API URL for fetching a user's repositories
 func reposURL(username string) string {
 	return githubBaseURL() + "/users/" + username + "/repos?per_page=100"
 }
 
-// https://api.github.com/repos/{username}/{repo}/languages
+// languagesURL returns the API URL for fetching language usage of a repository
 func languagesURL(username, repo string) string {
 	return githubBaseURL() + "/repos/" + username + "/" + repo + "/languages"
 }
