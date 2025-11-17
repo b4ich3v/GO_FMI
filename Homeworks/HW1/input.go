@@ -33,6 +33,7 @@ func trimSpace(inputString string) string {
 	return inputString[startIndex:endIndex]
 }
 
+// read line by line in file (validate + parse)
 func ReadUsernamesFromFile(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -44,6 +45,7 @@ func ReadUsernamesFromFile(path string) ([]string, error) {
 	var usernames []string
 	for scanner.Scan() {
 		line := trimSpace(scanner.Text())
+
 		// to avoid empty lines
 		if line != "" {
 			usernames = append(usernames, line)
