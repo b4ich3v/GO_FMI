@@ -1,89 +1,60 @@
 # Query Relevance Stats
 
-This module turns a list of **scored documents** into calibrated estimates
-of how many of them are relevant, using Bernoulli, Binomial and Poisson
-distributions.
+Small toolkit that answers the question:
 
-At the end of the pipeline you get a `QueryRelevanceStats` object that can
-answer questions like:
+> “Given a list of documents with scores, how many of them are **actually relevant** to the query?”
 
-* What is the expected number of relevant documents?
-* What is the variance of that number?
-* What is the probability that _none_ of the documents are relevant?
-* What is the probability that there is _at least one_ relevant document?
+The code does this by:
+- turning each `(document, score)` into a probability that the document is relevant;
+- optionally **clustering** similar documents;
+- combining all probabilities into:
+  - a **Binomial** model, and
+  - a **Poisson** model (approximation);
+- returning a `QueryRelevanceStats` object with convenient properties.
 
-The core idea is:
-
-1. Convert each `(document, score)` into a calibrated probability
-   `p_i = P(document i is relevant | score_i)`.
-2. Treat each document as a Bernoulli random variable `X_i ~ Bernoulli(p_i)`.
-3. Optionally **cluster** similar documents and work at cluster level.
-4. Aggregate the Bernoullis into a Binomial distribution.
-5. Use the Binomial → Poisson approximation to model the count of relevant
-   documents with a Poisson distribution with rate `λ`.
-6. Wrap all of this into `QueryRelevanceStats`, which gives convenient
-   summary statistics.
+The logic in this folder is deliberately thin and reuses the generic
+probability utilities from the rest of the `app.quality_analyze` package.
 
 ---
 
-## Directory layout
+## Files in `query_relevance_stats/`
 
-All files in this folder live under the package
-`app.quality_analyze.query_relevance_stats`:
+- **`documentation.pdf`** – human‑oriented write‑up with more mathematical detail.
+- **`bayesian_relevance_calibrator.py`** – converts a raw score into `P(relevant | score)`.
+- **`bernoulli_clusterer.py`** – clusters similar documents and builds cluster‑level Bernoulli distributions.
+- **`poisson_relevance_estimator.py`** – end‑to‑end pipeline from `(document, score)` to `QueryRelevanceStats`.
+- **`query_relevance_stats.py`** – definition of the `QueryRelevanceStats` dataclass and its convenience properties.
+- **`specified_discrete_variables/bernoulli_document_distribution.py`** – Bernoulli distribution + attached document metadata.
+- **`specified_discrete_variables/binomial_document_distribution.py`** – Binomial distribution that remembers its component Bernoullis.
 
-```text
-query_relevance_stats/
-├─ README.md                      # This file
-├─ documentation.pdf              # Mathematical / conceptual background (human docs)
-├─ query_relevance_stats.py       # Dataclass with final statistics
-├─ poisson_relevance_estimator.py # End‑to‑end pipeline from scores to stats
-├─ bayesian_relevance_calibrator.py
-│                                  # Calibrates raw scores into probabilities
-├─ bernoulli_clusterer.py         # Groups similar documents into clusters
-└─ specified_discrete_variables/
-   ├─ bernoulli_document_distribution.py
-   │                                # Bernoulli + attached document + score
-   └─ binomial_document_distribution.py
-                                    # Binomial + remembers underlying Bernoullis
-```
+The rest of the project provides shared building blocks:
 
-This package also depends on code in other folders:
-
-* `discrete_variables/*` — generic Bernoulli, Binomial, Poisson distributions
-  and the binomial→poisson approximation.
-* `conditional_probability/*` — generic Bayes theorem machinery.
-* `contidional_exceptation/conditional_expectation.py` — helper formulas for
-  expectations (law of total expectation, linearity, etc.).
-* `constants.py` — numeric and probability constants used across the codebase.
+- `constants.py` – numeric and probability constants (`PROBABILITY_ONE`, `PROBABILITY_ZERO`, priors, tolerances, etc.).
+- `discrete_variables/*` – generic Bernoulli / Binomial / Poisson distributions and approximations.
+- `conditional_probability/*` – Bayes theorem utilities (`EventHypothesis`, `CompleteEventGroup`, `BayesConditional`).
+- `contidional_exceptation/conditional_expectation.py` – helper functions for expectations.
 
 ---
 
-## Data model: document‑level distributions
+## Core data structures
 
 ### `BernoulliDocumentDistribution`
 
 File: `specified_discrete_variables/bernoulli_document_distribution.py`
 
-```python
-@dataclass
-class BernoulliDocumentDistribution(BernoulliDistribution):
-    document: Any | None = None
-    score: float | None = None
-```
+Extends the generic `BernoulliDistribution` and adds document metadata:
 
-Inherits from `BernoulliDistribution` and adds **metadata** about the
-underlying document and its original model score.
+- `probability: float` – `P(document is relevant | score)`;
+- `document: Any | None` – whatever you use to represent a document;
+- `score: float | None` – the original model score.
 
-From `BernoulliDistribution` (in `discrete_variables/bernoulli_distribution`)
-it inherits:
+From `BernoulliDistribution` it inherits:
 
-* `probability: float` — `p = P(relevant | score)`
-* `expected() = p`
-* `variance() = p * (1 - p)`
-* `pmf(k)` for `k ∈ {0, 1}`
+- `expected()` – returns `probability`;
+- `variance()` – returns `probability * (1 - probability)`;
+- `pmf(k)` – probability of success (1) or failure (0).
 
-So each `BernoulliDocumentDistribution` is a **single document** together
-with its probability of being relevant.
+Each instance represents **one document (or cluster)** treated as a Bernoulli trial.
 
 ---
 
@@ -91,157 +62,35 @@ with its probability of being relevant.
 
 File: `specified_discrete_variables/binomial_document_distribution.py`
 
-```python
-@dataclass
-class BinomialDocumentDistribution(BinomialDistribution):
-    bernoullis: Sequence[BernoulliDistribution] = ()
-```
+Extends the generic `BinomialDistribution` with:
 
-This is a binomial distribution that **remembers** the individual
-Bernoulli trials it was built from.
+- `bernoullis: Sequence[BernoulliDistribution]` – the underlying trials.
 
-The factory method:
+Factory:
 
 ```python
-@classmethod
-def from_bernoullis(cls, bernoullis: Sequence[BernoulliDistribution])
+BinomialDocumentDistribution.from_bernoullis(bernoullis)
 ```
 
-does the aggregation:
+- If the sequence is empty:
+  - returns a distribution with `number_of_experiments = 0`,
+  - `probability = 0.0`,
+  - and `bernoullis = ()`.
+- Otherwise:
+  - computes `lambda_total = sum(b.probability for b in bernoullis)`,
+  - sets `p̄ = lambda_total / len(bernoullis)`,
+  - returns a Binomial with `number_of_experiments = len(bernoullis)` and `probability = p̄`,
+  - and keeps a tuple of the Bernoullis.
 
-* `n = len(bernoullis)` — number of independent “experiments”.
-* `λ_total = sum(p_i)` — sum of the individual relevance probabilities.
-* `p̄ = λ_total / n` — average probability per experiment.
-
-Then it returns:
-
-```python
-BinomialDocumentDistribution(
-    number_of_experiments=n,
-    probability=p̄,
-    bernoullis=tuple(bernoullis),
-)
-```
-
-If `n == 0`, it returns a degenerate distribution with `n = 0`, `p̄ = 0`
-and an empty sequence of Bernoullis.
+This is the “summary” distribution used before switching to Poisson.
 
 ---
-
-## Calibrating scores into probabilities
-
-### `BayesianRelevanceCalibrator`
-
-File: `bayesian_relevance_calibrator.py`
-
-```python
-class BayesianRelevanceCalibrator:
-    def __init__(
-        self,
-        prior_relevant: float = DEFAULT_RELEVANCE_PRIOR,
-        temperature: float = DEFAULT_CALIBRATOR_TEMPERATURE,
-        score_threshold: float | None = None,
-        lower_score_is_better: bool = True,
-    ) -> None:
-        ...
-```
-
-Purpose: **map a raw ranking score to a probability of relevance**
-
-* `prior_relevant` — prior probability that a random document is relevant.
-* `temperature` — scales how “sharp” the transition is around the threshold.
-* `score_threshold` — score at which a document is roughly 50% likely to be
-  relevant; when `None`, a default constant is used.
-* `lower_score_is_better` — flips the sign of the margin depending on
-  whether lower or higher scores are better.
-
-Internal workflow:
-
-1. Constructs two hypotheses using `EventHypothesis`:
-   * `"RELEVANT"` with prior `π_rel`
-   * `"IRRELEVANT"` with prior `π_irrel = 1 - π_rel`
-2. Wraps them in a `CompleteEventGroup`, which normalizes the priors.
-3. Builds a `BayesConditional` object, which will apply Bayes’ theorem.
-
-Score → likelihoods:
-
-* The method `__normalized_margin(score)` computes a **margin** between the
-  incoming score and `score_threshold`, then divides by `temperature`.
-* The margin is clamped to `±CALIBRATOR_MAX_NORMALIZED_MARGIN_ABS`.
-* A logistic curve is applied:
-
-  ```python
-  p_b_given_rel = σ(normalized_margin)
-  p_b_given_irrel = 1 - p_b_given_rel
-  ```
-
-  producing `P(score | RELEVANT)` and `P(score | IRRELEVANT)` up to a
-  common scale factor.
-
-These likelihoods are passed into `BayesConditional`, which computes the
-posterior probabilities, and `calibrate(score)` returns:
-
-```python
-P(RELEVANT | score)
-```
-
-This is the probability that will become `BernoulliDocumentDistribution.probability`.
-
----
-
-## Clustering documents
-
-### `BernoulliClusterer`
-
-File: `bernoulli_clusterer.py`
-
-```python
-class BernoulliClusterer:
-    def __init__(self, are_documents_similar: Callable[[Any, Any], bool]) -> None:
-        ...
-```
-
-The clusterer groups document‑level Bernoulli distributions into clusters
-using a user‑provided similarity function `are_documents_similar(doc_a, doc_b)`.
-
-Workflow:
-
-1. `__cluster_distributions(bernoulli_distributions)`
-   * Iterates through all Bernoulli distributions.
-   * For each distribution, tries to place it in an existing cluster that
-     already contains at least one “similar” document.
-   * If no such cluster is found, it creates a new cluster.
-
-2. `build_cluster_bernoullis(bernoulli_distributions)`
-   * Calls `__cluster_distributions`.
-   * For each cluster:
-     * Computes the probability that **at least one document is relevant**:
-
-       ```python
-       P(cluster relevant) = 1 - Π_j (1 - p_j)
-       ```
-
-     * Clips this probability to the `[0, 1]` interval.
-     * Chooses a **representative document** in the cluster: the one with
-       the highest individual probability `p_j`.
-     * Creates a new `BernoulliDocumentDistribution` with:
-       * `probability = P(cluster relevant)`
-       * `document = representative.document`
-       * `score = representative.score`
-
-   * Returns a flat list of **cluster‑level** Bernoulli distributions.
-
-This allows you to de‑duplicate near‑identical documents and treat each
-cluster as a single “experiment” when estimating how many **distinct**
-relevant results you have.
-
----
-
-## Final statistics container
 
 ### `QueryRelevanceStats`
 
 File: `query_relevance_stats.py`
+
+Simple dataclass that is the **final result** of the workflow:
 
 ```python
 @dataclass
@@ -251,226 +100,275 @@ class QueryRelevanceStats:
     poisson: PoissonDistribution
 ```
 
-The object `QueryRelevanceStats` is the final output of the pipeline.
 It stores:
 
-* `bernoullis` — document‑ or cluster‑level Bernoulli distributions.
-* `binomial` — aggregated `BinomialDocumentDistribution` built from
-  `bernoullis`.
-* `poisson` — `PoissonDistribution` approximating the distribution of the
-  number of relevant documents.
+- `bernoullis` – document‑ or cluster‑level Bernoulli distributions;
+- `binomial` – `BinomialDocumentDistribution` built from those Bernoullis;
+- `poisson` – `PoissonDistribution` approximating the count of relevant docs.
 
-It also exposes convenience properties:
+Convenience properties:
 
-* `expected_relevant_docs` — exact expectation
+- `lambda_` – Poisson rate parameter (`poisson.lamda`).
+- `expected_relevant_docs` – exact expected count of relevant docs:
 
-  ```python
-  # N = Σ_i X_i, X_i ~ Bernoulli(p_i)
-  E[N | info] = Σ_i p_i
-  ```
+  - internally calls `__lambda_exact()`;
+  - uses `ConditionalExpectation.sum_of_indicators_given_probabilities`.
 
-  implemented via `__lambda_exact()` and `ConditionalExpectation.sum_of_indicators_given_probabilities`.
+- `variance_relevant_docs` – exact variance:
 
-* `variance_relevant_docs` — exact variance
+  - computed as `sum(b.variance() for b in self.bernoullis)`.
 
-  ```python
-  Var(N) = Σ_i p_i (1 - p_i)
-  ```
+- `prob_no_relevant` – probability that **no** document is relevant:
 
-* `prob_no_relevant` — probability that **none** of the documents is relevant
+  - multiplies `(1 - p_i)` for all Bernoullis.
 
-  ```python
-  P(N = 0 | info) = Π_i (1 - p_i)
-  ```
+- `prob_at_least_one_relevant` – probability of at least one relevant doc:
 
-* `prob_at_least_one_relevant` — probability of at least one relevant document
-
-  ```python
-  P(N ≥ 1 | info) = 1 - P(N = 0 | info)
-  ```
-
-* `lambda_` — the `λ` parameter of the Poisson approximation
-
-  ```python
-  lambda_ = poisson.lamda
-  ```
-
-Note: `expected_relevant_docs` is computed **exactly** from the Bernoullis,
-while `lambda_` comes from the Poisson approximation via the binomial
-aggregate; in practice they should match.
+  - `1 - prob_no_relevant`.
 
 ---
 
-## End‑to‑end workflow
+## Calibrating scores → probabilities
 
-### 1. Without clustering
+### `BayesianRelevanceCalibrator`
 
-Entry point: `PoissonRelevanceEstimator.estimate_from_scored_docs`
+File: `bayesian_relevance_calibrator.py`
+
+Purpose: convert a raw score into a probability that a document is relevant.
+
+Key ideas:
+
+- Define two hypotheses using `EventHypothesis`:
+  - `"RELEVANT"` with prior `prior_relevant`,
+  - `"IRRELEVANT"` with prior `1 - prior_relevant`.
+- Build a `CompleteEventGroup` to normalize the priors.
+- Use `BayesConditional` to later compute the posterior probabilities.
+
+Constructor (simplified):
+
+```python
+BayesianRelevanceCalibrator(
+    prior_relevant: float = DEFAULT_RELEVANCE_PRIOR,
+    temperature: float = DEFAULT_CALIBRATOR_TEMPERATURE,
+    score_threshold: float | None = None,
+    lower_score_is_better: bool = True,
+)
+```
+
+Parameters:
+
+- `prior_relevant` – prior belief that a random document is relevant.
+- `temperature` – smoothness of the transition around the threshold
+  (smaller → steeper curve).
+- `score_threshold` – score where relevance and irrelevance are about 50/50;
+  `None` falls back to `CALIBRATOR_DEFAULT_SCORE_THRESHOLD`.
+- `lower_score_is_better` – if `True`, lower scores are considered better.
+
+Internal steps in `calibrate(score)`:
+
+1. Compute a **normalized margin** between the score and the threshold,
+   with sign depending on `lower_score_is_better`, divided by `temperature`.
+2. Clamp the margin to `[-CALIBRATOR_MAX_NORMALIZED_MARGIN_ABS, +CALIBRATOR_MAX_NORMALIZED_MARGIN_ABS]`.
+3. Apply a logistic function to get a likelihood for `"RELEVANT"`:
+
+   ```python
+   sigma(x) = 1 / (1 + exp(-x))
+   ```
+
+4. Derive the likelihood for `"IRRELEVANT"` as `1 - sigma(x)`.
+5. Feed both likelihoods into `BayesConditional` and return the posterior
+   probability of `"RELEVANT"`:
+
+   ```python
+   # P(RELEVANT | score)
+   p = calibrator.calibrate(score)
+   ```
+
+This `p` is the probability used in `BernoulliDocumentDistribution.probability`.
+
+---
+
+## Clustering documents
+
+### `BernoulliClusterer`
+
+File: `bernoulli_clusterer.py`
+
+Purpose: group “similar enough” documents and treat each group as **one**
+Bernoulli trial.
+
+Constructor:
+
+```python
+BernoulliClusterer(are_documents_similar: Callable[[Any, Any], bool])
+```
+
+You provide a function that says whether two documents belong to the same cluster.
+
+Internal methods:
+
+- `__cluster_distributions(bernoulli_distributions)`:
+  - iterates over document‑level Bernoullis;
+  - for each one, tries to place it into an existing cluster where at least one
+    document is “similar” according to `are_documents_similar`;
+  - otherwise starts a new cluster;
+  - returns a list of clusters (each a list of Bernoullis).
+
+- `build_cluster_bernoullis(bernoulli_distributions)`:
+  - calls `__cluster_distributions`;
+  - for each cluster:
+    - if the cluster is non‑empty:
+      - computes the probability that **none** of the documents is relevant
+        as a product of `(1 - p_i)`;
+      - sets
+
+        ```python
+        cluster_probability = 1 - prob_all_not_relevant
+        ```
+
+      - clips this to `[0.0, 1.0]`;
+    - picks a representative document – the one with the **highest** probability;
+    - creates a new `BernoulliDocumentDistribution` with:
+      - `probability = cluster_probability`,
+      - `document = representative.document`,
+      - `score = representative.score`.
+  - returns a flat list of cluster‑level Bernoullis.
+
+If there are no clusters (empty input), it returns an empty list.
+
+---
+
+## End‑to‑end pipeline
+
+### `PoissonRelevanceEstimator`
 
 File: `poisson_relevance_estimator.py`
 
-```python
-class PoissonRelevanceEstimator:
-    def __init__(self, calibrator: BayesianRelevanceCalibrator) -> None:
-        self.__calibrator = calibrator
+This class wires everything together.
 
-    def estimate_from_scored_docs(
-        self,
-        scored_docs: Sequence[tuple[Any, float]],
-    ) -> QueryRelevanceStats:
-        ...
+Constructor:
+
+```python
+estimator = PoissonRelevanceEstimator(calibrator=BayesianRelevanceCalibrator(...))
+```
+
+Helper:
+
+- `__bernoullis_from_scored_docs(scored_docs)`:
+  - input is `Sequence[tuple[Any, float]]` (document, score);
+  - for each `(doc, score)`:
+    - compute `p = calibrator.calibrate(score)`;
+    - call `ConditionalExpectation.indicator_given_probability(p)`
+      to get the expected value of the indicator variable;
+    - build a `BernoulliDocumentDistribution(probability=p, document=doc, score=float(score))`;
+  - returns a list of Bernoullis.
+
+Shared “empty” case:
+
+- `empty_stats()`:
+  - builds a `BinomialDocumentDistribution` from an empty list of Bernoullis;
+  - uses `BinomialToPoissonApproximation.from_binomial` to create a Poisson
+    with `lambda_ = 0` (because the expectation is 0);
+  - returns a `QueryRelevanceStats` with:
+    - `bernoullis = []`,
+    - `binomial` degenerate at 0,
+    - `poisson` degenerate with `lamda = 0`.
+
+#### 1. Estimation **without** clustering
+
+```python
+estimate_from_scored_docs(
+    scored_docs: Sequence[tuple[Any, float]],
+) -> QueryRelevanceStats
 ```
 
 Steps:
 
-1. **Empty input** → `empty_stats()`
-   * Builds `BinomialDocumentDistribution.from_bernoullis([])`.
-   * Approximates to a Poisson distribution with `λ = 0`.
-   * Returns `QueryRelevanceStats` with all parts degenerate.
-
-2. **Non‑empty input**:
-   * For each `(doc, score)`:
-     * Compute `p = calibrator.calibrate(score)`.
-     * Use `ConditionalExpectation.indicator_given_probability(p)`
-       (essentially an identity) to represent `E[1_{doc is relevant}]`.
-     * Build a `BernoulliDocumentDistribution(
-           probability=p,
-           document=doc,
-           score=float(score),
-       )`.
-   * Collect all document‑level Bernoullis into a list `bernoullis`.
-
-3. Build `BinomialDocumentDistribution`:
+1. If `scored_docs` is empty → return `empty_stats()`.
+2. Build document‑level Bernoullis with `__bernoullis_from_scored_docs`.
+3. Build a `BinomialDocumentDistribution` from them:
 
    ```python
    binomial = BinomialDocumentDistribution.from_bernoullis(bernoullis)
    ```
 
-   This computes `n`, `p̄` and stores the original Bernoullis.
-
-4. Approximate with Poisson:
+4. Approximate the Binomial with a Poisson:
 
    ```python
    binomial_to_poisson = BinomialToPoissonApproximation.from_binomial(binomial)
    poisson = binomial_to_poisson.poisson
    ```
 
-5. Return:
+5. Return a `QueryRelevanceStats` with these three objects.
 
-   ```python
-   QueryRelevanceStats(
-       bernoullis=bernoullis,
-       binomial=binomial,
-       poisson=poisson,
-   )
-   ```
+In this mode, `QueryRelevanceStats.bernoullis` contains **one entry per document**.
 
----
-
-### 2. With clustering
-
-Entry point: `PoissonRelevanceEstimator.estimate_with_clustering`
+#### 2. Estimation **with** clustering
 
 ```python
-def estimate_with_clustering(
-    self,
+estimate_with_clustering(
     scored_docs: Sequence[tuple[Any, float]],
     are_documents_similar: Callable[[Any, Any], bool],
-) -> QueryRelevanceStats:
-    ...
+) -> QueryRelevanceStats
 ```
 
 Steps:
 
-1. If `scored_docs` is empty → same as `empty_stats()`.
-2. Otherwise, build document‑level Bernoullis exactly as in the non‑clustered
-   case.
-3. Create a `BernoulliClusterer` with the provided similarity function.
-4. Build **cluster‑level Bernoullis**:
+1. If `scored_docs` is empty → return `empty_stats()`.
+2. Build document‑level Bernoullis with `__bernoullis_from_scored_docs`.
+3. Create a `BernoulliClusterer` with your similarity function.
+4. Build cluster‑level Bernoullis:
 
    ```python
    clusterer = BernoulliClusterer(are_documents_similar=are_documents_similar)
    cluster_bernoullis = clusterer.build_cluster_bernoullis(bernoullis)
    ```
 
-5. Build a `BinomialDocumentDistribution` from the cluster‑level Bernoullis,
-   approximate with Poisson, and wrap everything in `QueryRelevanceStats`:
-
-   ```python
-   binomial = BinomialDocumentDistribution.from_bernoullis(cluster_bernoullis)
-   poisson = BinomialToPoissonApproximation.from_binomial(binomial).poisson
-
-   return QueryRelevanceStats(
-       bernoullis=cluster_bernoullis,
-       binomial=binomial,
-       poisson=poisson,
-   )
-   ```
-
-In this mode, `QueryRelevanceStats.bernoullis` refers to **clusters**, not
-individual raw documents.
+5. Build a `BinomialDocumentDistribution` from `cluster_bernoullis`.
+6. Approximate with Poisson using `BinomialToPoissonApproximation`.
+7. Return a `QueryRelevanceStats` where:
+   - `bernoullis` now represent **clusters** (not raw documents).
 
 ---
 
-## Example usage (pseudocode)
+## Typical usage (short pseudocode)
 
 ```python
-from app.quality_analyze.query_relevance_stats.bayesian_relevance_calibrator import (
-    BayesianRelevanceCalibrator,
-)
-from app.quality_analyze.query_relevance_stats.poisson_relevance_estimator import (
-    PoissonRelevanceEstimator,
-)
+from app.quality_analyze.query_relevance_stats.bayesian_relevance_calibrator import BayesianRelevanceCalibrator
+from app.quality_analyze.query_relevance_stats.poisson_relevance_estimator import PoissonRelevanceEstimator
 
-# 1. Prepare scored documents: (document, score)
 scored_docs = [
     (doc1, 0.12),
     (doc2, 0.40),
     (doc3, 0.95),
-    # ...
 ]
 
-# 2. Create a calibrator
 calibrator = BayesianRelevanceCalibrator(
     prior_relevant=0.5,
     temperature=1.0,
-    score_threshold=None,          # or some tuned value
-    lower_score_is_better=True,    # set False if higher score is better
+    score_threshold=0.0,
+    lower_score_is_better=True,
 )
 
-# 3. Create the estimator
 estimator = PoissonRelevanceEstimator(calibrator=calibrator)
 
-# (a) Without clustering
+# Without clustering
 stats = estimator.estimate_from_scored_docs(scored_docs)
 
-# (b) With clustering (optional)
-def are_documents_similar(doc_a, doc_b) -> bool:
-    # your own similarity logic here
-    return doc_a.url == doc_b.url
+# Or with clustering
+def are_documents_similar(a, b) -> bool:
+    return getattr(a, "url", None) == getattr(b, "url", None)
 
 clustered_stats = estimator.estimate_with_clustering(
     scored_docs,
     are_documents_similar=are_documents_similar,
 )
 
-# 4. Consume the statistics
-print("Expected relevant docs:", stats.expected_relevant_docs)
-print("Variance:", stats.variance_relevant_docs)
-print("P(no relevant docs):", stats.prob_no_relevant)
-print("P(at least one relevant):", stats.prob_at_least_one_relevant)
+print(stats.expected_relevant_docs)
+print(stats.prob_no_relevant)
+print(stats.prob_at_least_one_relevant)
+print(stats.lambda_)
 ```
 
----
-
-## Notes and assumptions
-
-* Individual Bernoulli trials (documents or clusters) are treated as
-  **independent**.
-* The Poisson approximation relies on the usual conditions for approximating
-  a Binomial with a Poisson (many trials, small probabilities, moderate
-  expected count).
-* Clustering is purely heuristic and depends entirely on the user‑supplied
-  `are_documents_similar` function.
-* The calibration quality depends on good choices for
-  `prior_relevant`, `temperature`, and `score_threshold`.
+This is the entire workflow: scores → probabilities → (optional) clusters →
+Bernoulli list → Binomial summary → Poisson approximation → `QueryRelevanceStats`.
