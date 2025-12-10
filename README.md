@@ -1,374 +1,278 @@
 # Query Relevance Stats
 
-Small toolkit that answers the question:
+Тази папка съдържа малък, но завършен модул, който отговаря на въпроса:
 
-> “Given a list of documents with scores, how many of them are **actually relevant** to the query?”
+> „Имам списък от документи с някакъв **score**. Колко от тях са **релевантни** към заявката и с каква вероятност?“
 
-The code does this by:
-- turning each `(document, score)` into a probability that the document is relevant;
-- optionally **clustering** similar documents;
-- combining all probabilities into:
-  - a **Binomial** model, and
-  - a **Poisson** model (approximation);
-- returning a `QueryRelevanceStats` object with convenient properties.
+Идеята е:
+- всеки `(document, score)` се превръща в **вероятност документът да е релевантен**;
+- тези вероятности се разглеждат като Бернули променливи (успех = „документът е релевантен“);
+- по желание се прави **клъстеризация** на подобни документи, за да не броим дубликати;
+- от всички Бернули се строи биномиално и после пуасоново разпределение за броя релевантни документи;
+- резултатът се събира в обект `QueryRelevanceStats`, от който лесно четем очакван брой, вариация, вероятност да няма нито един релевантен документ и т.н.
 
-The logic in this folder is deliberately thin and reuses the generic
-probability utilities from the rest of the `app.quality_analyze` package.
+Целият модул ползва общи помощни класове от останалата част на `app.quality_analyze` за вероятности, очаквания и Байес.
 
 ---
 
-## Files in `query_relevance_stats/`
+## Груба схема на целия workflow
 
-- **`documentation.pdf`** – human‑oriented write‑up with more mathematical detail.
-- **`bayesian_relevance_calibrator.py`** – converts a raw score into `P(relevant | score)`.
-- **`bernoulli_clusterer.py`** – clusters similar documents and builds cluster‑level Bernoulli distributions.
-- **`poisson_relevance_estimator.py`** – end‑to‑end pipeline from `(document, score)` to `QueryRelevanceStats`.
-- **`query_relevance_stats.py`** – definition of the `QueryRelevanceStats` dataclass and its convenience properties.
-- **`specified_discrete_variables/bernoulli_document_distribution.py`** – Bernoulli distribution + attached document metadata.
-- **`specified_discrete_variables/binomial_document_distribution.py`** – Binomial distribution that remembers its component Bernoullis.
+```text
+(doc, score) списък
+        │
+        ▼
+BayesianRelevanceCalibrator
+(score → P(RELEVANT | score))
+        │
+        ▼
+BernoulliDocumentDistribution
+(по един за всеки документ)
+        │
+        ├─ (по избор) BernoulliClusterer
+        │             (групира сходни документи → клъстерни Бернули)
+        ▼
+BinomialDocumentDistribution.from_bernoullis(...)
+        │
+        ▼
+BinomialToPoissonApproximation
+        │
+        ▼
+PoissonDistribution
+        │
+        ▼
+QueryRelevanceStats
+  - bernoullis (документи/клъстери)
+  - binomial
+  - poisson
+  - метрики (очакване, вариация, P(0), P(≥1))
+```
 
-The rest of the project provides shared building blocks:
-
-- `constants.py` – numeric and probability constants (`PROBABILITY_ONE`, `PROBABILITY_ZERO`, priors, tolerances, etc.).
-- `discrete_variables/*` – generic Bernoulli / Binomial / Poisson distributions and approximations.
-- `conditional_probability/*` – Bayes theorem utilities (`EventHypothesis`, `CompleteEventGroup`, `BayesConditional`).
-- `contidional_exceptation/conditional_expectation.py` – helper functions for expectations.
+За един query това е „тръбопроводът“ от сурови резултати до статистики.
 
 ---
 
-## Core data structures
+## Файлове и какво правят
 
-### `BernoulliDocumentDistribution`
+Папка: `analyze/query_relevance_stats/`
 
-File: `specified_discrete_variables/bernoulli_document_distribution.py`
+- **`documentation.pdf`**  
+  Човешка документация – математически обяснения и мотивация. Кодът тук е по-прагматичен и следва тези идеи.
 
-Extends the generic `BernoulliDistribution` and adds document metadata:
+- **`bayesian_relevance_calibrator.py`**  
+  Отговаря за **преобразуването на score в вероятност за релевантност**.  
+  Получава суров score от ранкера и връща число между 0 и 1: `P(RELEVANT | score)`.
 
-- `probability: float` – `P(document is relevant | score)`;
-- `document: Any | None` – whatever you use to represent a document;
-- `score: float | None` – the original model score.
+- **`bernoulli_clusterer.py`**  
+  Взима списък от Bernoulli-дистрибуции за отделни документи и ги **групира в клъстери** според подадена от потребителя функция за прилика. От всеки клъстер прави един нов Bernoulli, който описва „има ли поне един релевантен документ в този клъстер“.
 
-From `BernoulliDistribution` it inherits:
+- **`poisson_relevance_estimator.py`**  
+  Това е **основният pipeline клас**.  
+  Той свързва калибратора, документните Бернули, клъстеризацията (ако е включена), биномиалното и пуасоновото разпределение и накрая връща `QueryRelevanceStats`.
 
-- `expected()` – returns `probability`;
-- `variance()` – returns `probability * (1 - probability)`;
-- `pmf(k)` – probability of success (1) or failure (0).
+- **`query_relevance_stats.py`**  
+  Съдържа датакласа `QueryRelevanceStats`, който е крайният контейнер с всички статистики за един query.
 
-Each instance represents **one document (or cluster)** treated as a Bernoulli trial.
+- **`specified_discrete_variables/bernoulli_document_distribution.py`**  
+  Дефинира `BernoulliDocumentDistribution` – Бернули разпределение, в което освен вероятност има и **document** и **score**.
 
----
+- **`specified_discrete_variables/binomial_document_distribution.py`**  
+  Дефинира `BinomialDocumentDistribution` – биномиално разпределение, което освен параметрите си пази и **списъка от изходни Бернули** и има удобен конструктор `from_bernoullis(...)`.
 
-### `BinomialDocumentDistribution`
-
-File: `specified_discrete_variables/binomial_document_distribution.py`
-
-Extends the generic `BinomialDistribution` with:
-
-- `bernoullis: Sequence[BernoulliDistribution]` – the underlying trials.
-
-Factory:
-
-```python
-BinomialDocumentDistribution.from_bernoullis(bernoullis)
-```
-
-- If the sequence is empty:
-  - returns a distribution with `number_of_experiments = 0`,
-  - `probability = 0.0`,
-  - and `bernoullis = ()`.
-- Otherwise:
-  - computes `lambda_total = sum(b.probability for b in bernoullis)`,
-  - sets `p̄ = lambda_total / len(bernoullis)`,
-  - returns a Binomial with `number_of_experiments = len(bernoullis)` and `probability = p̄`,
-  - and keeps a tuple of the Bernoullis.
-
-This is the “summary” distribution used before switching to Poisson.
+Модулът стъпва върху:
+- `discrete_variables.*` – общи имплементации на Bernoulli, Binomial, Poisson, плюс аппроксимации;
+- `conditional_probability.*` – обща Байесова инфраструктура;
+- `contidional_exceptation.conditional_expectation` – общи формули за очаквания;
+- `constants` – числови и вероятностни константи (0, 1, толеранси, прагове).
 
 ---
 
-### `QueryRelevanceStats`
+## Какво означават основните обекти
 
-File: `query_relevance_stats.py`
+### 1. `BernoulliDocumentDistribution` – един документ като „монета“
 
-Simple dataclass that is the **final result** of the workflow:
+Файл: `specified_discrete_variables/bernoulli_document_distribution.py`
 
-```python
-@dataclass
-class QueryRelevanceStats:
-    bernoullis: List[BernoulliDocumentDistribution]
-    binomial: BinomialDocumentDistribution
-    poisson: PoissonDistribution
-```
+Това е обикновено Бернули разпределение с допълнителна информация:
 
-It stores:
+- наследява `BernoulliDistribution` (има `probability`, `expected()`, `variance()` и т.н.);
+- добавя:
+  - `document` – самият документ (обект по твой избор);
+  - `score` – суровият score, по който документът е бил подреден.
 
-- `bernoullis` – document‑ or cluster‑level Bernoulli distributions;
-- `binomial` – `BinomialDocumentDistribution` built from those Bernoullis;
-- `poisson` – `PoissonDistribution` approximating the count of relevant docs.
+Интуитивно: *„Имаме документ X. Вероятността той да е релевантен е p. Хвърляме монета с шанс p за успех.“*  
+Всеки документ или клъстер, с който работим по-нататък, е такава монета.
 
-Convenience properties:
+### 2. `BinomialDocumentDistribution` – събиране на много документи
 
-- `lambda_` – Poisson rate parameter (`poisson.lamda`).
-- `expected_relevant_docs` – exact expected count of relevant docs:
+Файл: `specified_discrete_variables/binomial_document_distribution.py`
 
-  - internally calls `__lambda_exact()`;
-  - uses `ConditionalExpectation.sum_of_indicators_given_probabilities`.
+Този клас:
+- наследява общия `BinomialDistribution` (брой опити + шанс за успех);
+- пази списък `bernoullis` – изходните Бернули;
+- има класов метод `from_bernoullis(bernoullis)`:
 
-- `variance_relevant_docs` – exact variance:
+  - ако списъкът е празен → връща биномиално с 0 опита и вероятност 0;
+  - иначе:
+    - сумира всички вероятности `p_i`;
+    - дели на броя им → получава средна вероятност `p̄`;
+    - създава биномиално разпределение с:
+      - `number_of_experiments = len(bernoullis)`,
+      - `probability = p̄`,
+      - `bernoullis = tuple(bernoullis)`.
 
-  - computed as `sum(b.variance() for b in self.bernoullis)`.
+Това е компактният „обобщен“ изглед върху всички документи или клъстери.
 
-- `prob_no_relevant` – probability that **no** document is relevant:
+### 3. `QueryRelevanceStats` – финалният резултат
 
-  - multiplies `(1 - p_i)` for all Bernoullis.
+Файл: `query_relevance_stats.py`
 
-- `prob_at_least_one_relevant` – probability of at least one relevant doc:
+Това е датакласът, който събира крайния резултат за един query:
 
-  - `1 - prob_no_relevant`.
+- `bernoullis`: списък `List[BernoulliDocumentDistribution]` – може да са по един на документ или по един на клъстер (при клъстеризация);
+- `binomial`: `BinomialDocumentDistribution` – обобщеното биномиално разпределение;
+- `poisson`: `PoissonDistribution` – Пуасонова аппроксимация за броя релевантни.
 
----
+Вътре има две помощни частни функции:
 
-## Calibrating scores → probabilities
+- `__lambda_exact()` – изчислява **точното очакване** на броя релевантни документи като сума на вероятностите;
+- `__prob_zero_exact()` – изчислява **точната вероятност** да няма нито един релевантен документ (произведение от `(1 - p_i)`).
 
-### `BayesianRelevanceCalibrator`
+Има и няколко property-та, които са удобният интерфейс навън:
 
-File: `bayesian_relevance_calibrator.py`
+- `lambda_` – λ на пуасоновото разпределение (директно от `poisson.lamda`);
+- `expected_relevant_docs` – очакван брой релевантни документи (ползва `__lambda_exact`);
+- `variance_relevant_docs` – вариация на броя релевантни (сума на вариациите от всеки Bernoulli);
+- `prob_no_relevant` – вероятност **да няма нито един** релевантен документ;
+- `prob_at_least_one_relevant` – вероятност да има **поне един** релевантен документ (1 – `prob_no_relevant`).
 
-Purpose: convert a raw score into a probability that a document is relevant.
-
-Key ideas:
-
-- Define two hypotheses using `EventHypothesis`:
-  - `"RELEVANT"` with prior `prior_relevant`,
-  - `"IRRELEVANT"` with prior `1 - prior_relevant`.
-- Build a `CompleteEventGroup` to normalize the priors.
-- Use `BayesConditional` to later compute the posterior probabilities.
-
-Constructor (simplified):
-
-```python
-BayesianRelevanceCalibrator(
-    prior_relevant: float = DEFAULT_RELEVANCE_PRIOR,
-    temperature: float = DEFAULT_CALIBRATOR_TEMPERATURE,
-    score_threshold: float | None = None,
-    lower_score_is_better: bool = True,
-)
-```
-
-Parameters:
-
-- `prior_relevant` – prior belief that a random document is relevant.
-- `temperature` – smoothness of the transition around the threshold
-  (smaller → steeper curve).
-- `score_threshold` – score where relevance and irrelevance are about 50/50;
-  `None` falls back to `CALIBRATOR_DEFAULT_SCORE_THRESHOLD`.
-- `lower_score_is_better` – if `True`, lower scores are considered better.
-
-Internal steps in `calibrate(score)`:
-
-1. Compute a **normalized margin** between the score and the threshold,
-   with sign depending on `lower_score_is_better`, divided by `temperature`.
-2. Clamp the margin to `[-CALIBRATOR_MAX_NORMALIZED_MARGIN_ABS, +CALIBRATOR_MAX_NORMALIZED_MARGIN_ABS]`.
-3. Apply a logistic function to get a likelihood for `"RELEVANT"`:
-
-   ```python
-   sigma(x) = 1 / (1 + exp(-x))
-   ```
-
-4. Derive the likelihood for `"IRRELEVANT"` as `1 - sigma(x)`.
-5. Feed both likelihoods into `BayesConditional` and return the posterior
-   probability of `"RELEVANT"`:
-
-   ```python
-   # P(RELEVANT | score)
-   p = calibrator.calibrate(score)
-   ```
-
-This `p` is the probability used in `BernoulliDocumentDistribution.probability`.
+Така `QueryRelevanceStats` е лицето на модула: подаваш му се чрез `PoissonRelevanceEstimator`, а после четеш от него най-важните числа.
 
 ---
 
-## Clustering documents
+## Score → вероятност: `BayesianRelevanceCalibrator`
 
-### `BernoulliClusterer`
+Файл: `bayesian_relevance_calibrator.py`
 
-File: `bernoulli_clusterer.py`
+Този клас отговаря за най-важното преобразуване в началото на pipeline-а:
 
-Purpose: group “similar enough” documents and treat each group as **one**
-Bernoulli trial.
+- вход: суров `score` за документ (каквото дава ранкерът);
+- изход: `P(RELEVANT | score)` – вероятност документът да е релевантен.
 
-Constructor:
+Как го прави:
 
-```python
-BernoulliClusterer(are_documents_similar: Callable[[Any, Any], bool])
-```
+1. В конструктора се дефинират две хипотези чрез `EventHypothesis`:
+   - `"RELEVANT"` с prior `prior_relevant`;
+   - `"IRRELEVANT"` с prior `1 - prior_relevant`.
+2. Тези хипотези се събират в `CompleteEventGroup`, после в `BayesConditional`.
+3. За даден score:
+   - изчислява се **нормализиран margin** спрямо `score_threshold` (със знак в зависимост от `lower_score_is_better`) и се дели на `temperature`;
+   - margin-ът се ограничава в интервал `[-CALIBRATOR_MAX_NORMALIZED_MARGIN_ABS, +...]`;
+   - през този margin се пуска логистична функция (σ), която дава „колко по-вероятно е да сме в RELEVANT“;
+   - това става `p(score | RELEVANT)` в относителна скала, а допълнението е `p(score | IRRELEVANT)`;
+   - тези две стойности влизат в `BayesConditional`, което връща постериорните вероятности.
 
-You provide a function that says whether two documents belong to the same cluster.
-
-Internal methods:
-
-- `__cluster_distributions(bernoulli_distributions)`:
-  - iterates over document‑level Bernoullis;
-  - for each one, tries to place it into an existing cluster where at least one
-    document is “similar” according to `are_documents_similar`;
-  - otherwise starts a new cluster;
-  - returns a list of clusters (each a list of Bernoullis).
-
-- `build_cluster_bernoullis(bernoulli_distributions)`:
-  - calls `__cluster_distributions`;
-  - for each cluster:
-    - if the cluster is non‑empty:
-      - computes the probability that **none** of the documents is relevant
-        as a product of `(1 - p_i)`;
-      - sets
-
-        ```python
-        cluster_probability = 1 - prob_all_not_relevant
-        ```
-
-      - clips this to `[0.0, 1.0]`;
-    - picks a representative document – the one with the **highest** probability;
-    - creates a new `BernoulliDocumentDistribution` with:
-      - `probability = cluster_probability`,
-      - `document = representative.document`,
-      - `score = representative.score`.
-  - returns a flat list of cluster‑level Bernoullis.
-
-If there are no clusters (empty input), it returns an empty list.
+Краен ефект: за всеки score имаме калибрирана, гладка и ограничена вероятност за релевантност, която се използва в `BernoulliDocumentDistribution`.
 
 ---
 
-## End‑to‑end pipeline
+## Клъстеризация на документи: `BernoulliClusterer`
 
-### `PoissonRelevanceEstimator`
+Файл: `bernoulli_clusterer.py`
 
-File: `poisson_relevance_estimator.py`
+Цел: ако имаме много почти идентични документи (напр. копия на една страница), да ги третираме като **един „клъстерен“ резултат**, а не да ги броим поотделно.
 
-This class wires everything together.
+Работи така:
 
-Constructor:
+1. В конструктора му подаваш функция `are_documents_similar(doc_a, doc_b) -> bool`.
+2. Методът `__cluster_distributions(...)` минава през всички Bernoulli-дистрибуции:
+   - за текущото разпределение търси дали вече има клъстер, в който документът е „подобен“ на поне един от елементите;
+   - ако намери → добавя го към този клъстер;
+   - ако не → създава нов клъстер само с него.
+3. Методът `build_cluster_bernoullis(...)`:
+   - взима клъстерите;
+   - за всеки клъстер:
+     - ако е празен → прескача;
+     - умножава `(1 - p_i)` за всички документи вътре и получава вероятност **никой** да не е релевантен;
+     - от това прави `1 - ...` и така получава вероятност **поне един да е релевантен в клъстера**;
+     - ако числото е извън [0, 1] заради числена грешка, го клипва;
+     - избира представителния документ (този с най-голяма `probability`);
+     - създава `BernoulliDocumentDistribution` за целия клъстер, с:
+       - `probability = P(клъстерът съдържа релевантен документ)`,
+       - `document = представителният документ`,
+       - `score = score-а на представителния документ`.
+   - връща списък от тези нови клъстерни Бернули.
 
-```python
-estimator = PoissonRelevanceEstimator(calibrator=BayesianRelevanceCalibrator(...))
-```
-
-Helper:
-
-- `__bernoullis_from_scored_docs(scored_docs)`:
-  - input is `Sequence[tuple[Any, float]]` (document, score);
-  - for each `(doc, score)`:
-    - compute `p = calibrator.calibrate(score)`;
-    - call `ConditionalExpectation.indicator_given_probability(p)`
-      to get the expected value of the indicator variable;
-    - build a `BernoulliDocumentDistribution(probability=p, document=doc, score=float(score))`;
-  - returns a list of Bernoullis.
-
-Shared “empty” case:
-
-- `empty_stats()`:
-  - builds a `BinomialDocumentDistribution` from an empty list of Bernoullis;
-  - uses `BinomialToPoissonApproximation.from_binomial` to create a Poisson
-    with `lambda_ = 0` (because the expectation is 0);
-  - returns a `QueryRelevanceStats` with:
-    - `bernoullis = []`,
-    - `binomial` degenerate at 0,
-    - `poisson` degenerate with `lamda = 0`.
-
-#### 1. Estimation **without** clustering
-
-```python
-estimate_from_scored_docs(
-    scored_docs: Sequence[tuple[Any, float]],
-) -> QueryRelevanceStats
-```
-
-Steps:
-
-1. If `scored_docs` is empty → return `empty_stats()`.
-2. Build document‑level Bernoullis with `__bernoullis_from_scored_docs`.
-3. Build a `BinomialDocumentDistribution` from them:
-
-   ```python
-   binomial = BinomialDocumentDistribution.from_bernoullis(bernoullis)
-   ```
-
-4. Approximate the Binomial with a Poisson:
-
-   ```python
-   binomial_to_poisson = BinomialToPoissonApproximation.from_binomial(binomial)
-   poisson = binomial_to_poisson.poisson
-   ```
-
-5. Return a `QueryRelevanceStats` with these three objects.
-
-In this mode, `QueryRelevanceStats.bernoullis` contains **one entry per document**.
-
-#### 2. Estimation **with** clustering
-
-```python
-estimate_with_clustering(
-    scored_docs: Sequence[tuple[Any, float]],
-    are_documents_similar: Callable[[Any, Any], bool],
-) -> QueryRelevanceStats
-```
-
-Steps:
-
-1. If `scored_docs` is empty → return `empty_stats()`.
-2. Build document‑level Bernoullis with `__bernoullis_from_scored_docs`.
-3. Create a `BernoulliClusterer` with your similarity function.
-4. Build cluster‑level Bernoullis:
-
-   ```python
-   clusterer = BernoulliClusterer(are_documents_similar=are_documents_similar)
-   cluster_bernoullis = clusterer.build_cluster_bernoullis(bernoullis)
-   ```
-
-5. Build a `BinomialDocumentDistribution` from `cluster_bernoullis`.
-6. Approximate with Poisson using `BinomialToPoissonApproximation`.
-7. Return a `QueryRelevanceStats` where:
-   - `bernoullis` now represent **clusters** (not raw documents).
+Така на следващите стъпки работим със „смислени“ уникални резултати, а не с шум от дубликати.
 
 ---
 
-## Typical usage (short pseudocode)
+## Крайният pipeline: `PoissonRelevanceEstimator`
 
-```python
-from app.quality_analyze.query_relevance_stats.bayesian_relevance_calibrator import BayesianRelevanceCalibrator
-from app.quality_analyze.query_relevance_stats.poisson_relevance_estimator import PoissonRelevanceEstimator
+Файл: `poisson_relevance_estimator.py`
 
-scored_docs = [
-    (doc1, 0.12),
-    (doc2, 0.40),
-    (doc3, 0.95),
-]
+Това е класът, който реално свързва всичко.
 
-calibrator = BayesianRelevanceCalibrator(
-    prior_relevant=0.5,
-    temperature=1.0,
-    score_threshold=0.0,
-    lower_score_is_better=True,
-)
+Има три основни части:
 
-estimator = PoissonRelevanceEstimator(calibrator=calibrator)
+1. **Конструктор**  
+   Взима инстанция на `BayesianRelevanceCalibrator` и я пази.
 
-# Without clustering
-stats = estimator.estimate_from_scored_docs(scored_docs)
+2. **Преобразуване на `(doc, score)` → Bernoulli**  
+   Частният метод `__bernoullis_from_scored_docs(scored_docs)`:
+   - `scored_docs` е списък от `(document, score)` двойки;
+   - за всяка двойка:
+     - вика `calibrator.calibrate(score)`, за да вземе вероятност `p`;
+     - през `ConditionalExpectation.indicator_given_probability(p)` получава очакването на индикаторната променлива (което е същото число p);
+     - създава `BernoulliDocumentDistribution` с:
+       - `probability = p`,
+       - `document = doc`,
+       - `score = float(score)`;
+     - добавя го в списъка.
+   - връща списък от документни Бернули.
 
-# Or with clustering
-def are_documents_similar(a, b) -> bool:
-    return getattr(a, "url", None) == getattr(b, "url", None)
+3. **Два начина за оценка: с и без клъстеризация**
 
-clustered_stats = estimator.estimate_with_clustering(
-    scored_docs,
-    are_documents_similar=are_documents_similar,
-)
+   - `empty_stats()`  
+     Ако няма документи:
+     - строи биномиално разпределение от празен списък (0 опита, вероятност 0);
+     - прави пуасонова аппроксимация (λ = 0);
+     - връща `QueryRelevanceStats` с празен `bernoullis` и дегенератни `binomial` и `poisson`.
 
-print(stats.expected_relevant_docs)
-print(stats.prob_no_relevant)
-print(stats.prob_at_least_one_relevant)
-print(stats.lambda_)
-```
+   - `estimate_from_scored_docs(scored_docs)` – **без клъстеризация**  
+     - ако списъкът е празен → връща `empty_stats()`;
+     - иначе:
+       - прави списък от Bernoulli-дистрибуции чрез `__bernoullis_from_scored_docs`;
+       - от тях строи `BinomialDocumentDistribution.from_bernoullis(...)`;
+       - от биномиалното прави пуасонова аппроксимация (`BinomialToPoissonApproximation`);
+       - създава `QueryRelevanceStats` със:
+         - оригиналните Bernoulli-та (по едно на документ),
+         - биномиалното разпределение,
+         - пуасоновото разпределение.
 
-This is the entire workflow: scores → probabilities → (optional) clusters →
-Bernoulli list → Binomial summary → Poisson approximation → `QueryRelevanceStats`.
+   - `estimate_with_clustering(scored_docs, are_documents_similar)` – **с клъстеризация**  
+     - ако списъкът е празен → връща `empty_stats()`;
+     - иначе:
+       - пак строи документните Бернули;
+       - създава `BernoulliClusterer` със зададената функция `are_documents_similar`;
+       - от него взима клъстерните Бернули;
+       - от тях прави `BinomialDocumentDistribution` и после пуасонова аппроксимация;
+       - връща `QueryRelevanceStats`, където:
+         - `bernoullis` вече са **по клъстер**, а не по документ.
+
+---
+
+## Как да „четеш“ резултата
+
+Накратко, за един query:
+
+- подаваш списък `(doc, score)` на `PoissonRelevanceEstimator`;
+- получаваш `QueryRelevanceStats stats`;
+- от `stats` можеш да разбереш:
+  - **колко релевантни документа очакваме** (`expected_relevant_docs`);
+  - **колко несигурно е това число** (`variance_relevant_docs`);
+  - **какъв е шансът да няма нито един релевантен документ** (`prob_no_relevant`);
+  - **какъв е шансът да има поне един** (`prob_at_least_one_relevant`);
+  - каква е **λ на пуасоновото разпределение** (`lambda_`), ако искаш да работиш директно с него;
+  - ако гледаш по-дълбоко – цялото разпределение на броя релевантни (през `poisson` или `binomial`).
+
+Това е реалният „живот“ на този модул: от сурови score-ове по документи до интуитивни, обясними статистики за качеството на резултатите за един query.
