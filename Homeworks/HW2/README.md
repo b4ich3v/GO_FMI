@@ -84,7 +84,6 @@ python3 -m http.server 9000
 
 ### Crawl without render (expect 0)
 ```bash
-cd ..
 docker compose exec -T mysql mysql -h 127.0.0.1 -P 3306 -u crawler -pcrawler imagedb -e "TRUNCATE TABLE images;"
 rm -rf thumbnails && mkdir -p thumbnails
 
