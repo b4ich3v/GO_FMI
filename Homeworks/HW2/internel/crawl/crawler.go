@@ -323,7 +323,11 @@ func startPageWorkers(ctx context.Context, wg *sync.WaitGroup, n int, jobs <-cha
 						fp, err = httpFetcher.Fetch(ctx, t.URL)
 					}
 					if err != nil {
-						out <- pageResult{Task: t, Err: err}
+						select {
+						case out <- pageResult{Task: t, Err: err}:
+						case <-ctx.Done():
+							return
+						}
 						continue
 					}
 
@@ -335,15 +339,23 @@ func startPageWorkers(ctx context.Context, wg *sync.WaitGroup, n int, jobs <-cha
 					if looksLikeHTML(fp.ContentType, fp.Body) {
 						ext, err := extract.FromHTML(finalURL, fp.Body)
 						if err != nil {
-							out <- pageResult{Task: t, FinalURL: finalURL, Err: err}
+							select {
+							case out <- pageResult{Task: t, FinalURL: finalURL, Err: err}:
+							case <-ctx.Done():
+								return
+							}
 							continue
 						}
-						out <- pageResult{
+						select {
+						case out <- pageResult{
 							Task:      t,
 							FinalURL:  finalURL,
 							Links:     ext.Links,
 							Resources: ext.Resources,
 							Images:    ext.Images,
+						}:
+						case <-ctx.Done():
+							return
 						}
 						continue
 					}
@@ -361,17 +373,25 @@ func startPageWorkers(ctx context.Context, wg *sync.WaitGroup, n int, jobs <-cha
 							ru := resolveURL(finalURL, u)
 							imgs = append(imgs, extract.ImageRef{URL: ru, PageURL: finalURL, Filename: filenameFromURL(ru)})
 						}
-						out <- pageResult{
+						select {
+						case out <- pageResult{
 							Task:      t,
 							FinalURL:  finalURL,
 							Resources: res,
 							Images:    imgs,
+						}:
+						case <-ctx.Done():
+							return
 						}
 						continue
 					}
 
 					// JS and other resources: nothing to extract
-					out <- pageResult{Task: t, FinalURL: finalURL}
+					select {
+					case out <- pageResult{Task: t, FinalURL: finalURL}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}(i)
@@ -411,7 +431,11 @@ func startImageWorkers(ctx context.Context, wg *sync.WaitGroup, n int, jobs <-ch
 					ictx, cancel := context.WithTimeout(ctx, 45*time.Second)
 					proc, err := dl.DownloadAndThumbnail(ictx, t.Ref.URL)
 					cancel()
-					out <- imageResult{Task: t, Proc: proc, Err: err}
+					select {
+					case out <- imageResult{Task: t, Proc: proc, Err: err}:
+					case <-ctx.Done():
+						return
+					}
 				}
 			}
 		}(i)
