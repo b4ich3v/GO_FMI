@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	_ "image/gif"
 	"image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -136,13 +138,22 @@ func (d *Downloader) processBytes(srcURL string, b []byte, contentType string) (
 	if strings.Contains(lct, "image/svg") || ext == ".svg" || bytes.Contains(b[:min(len(b), 256)], []byte("<svg")) {
 		return d.processSVG(srcURL, b)
 	}
-	return d.processRaster(srcURL, b)
+	return d.processRaster(srcURL, b, contentType)
 }
 
-func (d *Downloader) processRaster(srcURL string, b []byte) (Processed, error) {
+func (d *Downloader) processRaster(srcURL string, b []byte, contentType string) (Processed, error) {
 	img, format, err := image.Decode(bytes.NewReader(b))
 	if err != nil {
-		return Processed{}, err
+		ct := strings.TrimSpace(contentType)
+		if ct == "" {
+			ct = "(unknown content-type)"
+		}
+		// Helpful when a server returns HTML (e.g. 403 page) for an image URL.
+		sn := strings.TrimSpace(string(b[:min(len(b), 96)]))
+		if len(sn) > 0 {
+			return Processed{}, fmt.Errorf("image decode failed: %w (content-type=%s, sniff=%q)", err, ct, sn)
+		}
+		return Processed{}, fmt.Errorf("image decode failed: %w (content-type=%s)", err, ct)
 	}
 	bounds := img.Bounds()
 	w := bounds.Dx()
