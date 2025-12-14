@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	_ "golang.org/x/image/ico"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
