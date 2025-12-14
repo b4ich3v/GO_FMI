@@ -1,4 +1,4 @@
-# How to run
+# Go Image Crawler (Demo)
 
 ## Dependencies
 - Go (1.22+)
@@ -35,6 +35,19 @@ go mod tidy
 ## Demo: Crawl
 ```bash
 go run ./cmd/crawler   -mysql "crawler:crawler@tcp(127.0.0.1:3307)/imagedb?parseTime=true"   -workers 16 -image-workers 16   -max-pages 30   -max-depth 1   -follow-external=false   -max-goroutines 128   -render=false   -thumbdir ./thumbnails   https://go.dev
+```
+
+```bash
+go run ./cmd/crawler \
+  -mysql "crawler:crawler@tcp(127.0.0.1:3307)/imagedb?parseTime=true" \
+  -workers 16 -image-workers 16 \
+  -max-pages 30 \
+  -max-depth 1 \
+  -follow-external=false \
+  -max-goroutines 128 \
+  -render=false \
+  -thumbdir ./thumbnails \
+  https://www.rust-lang.org
 ```
 
 ---
