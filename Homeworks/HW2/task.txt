@@ -1,0 +1,13 @@
+Starting from provided web page URL/s (given as command line arguments), crawl web pages recursively, extracting all connected web resource links, and crawling that linked resources in worker goroutines (reused - from a worker pool - the pool size should be configured using command argument argument). A command argument flag should be given whether to follow external links (different from cdns serving online versions of JS and CSS libraries). 
+The communication between goroutines should be implemented using channels.
+The program should accept a crawling (page traversal and indexing) timeout parameter as additional optional command line argument (2 min by default, e.g. using: context.WithTimeout(context.Background(), 2*time.Minute) for that purpose, as in the examples discussed).
+The maximum number of goroutines created any given moment should not exceed the predefined constant in the program, or can be given too as additional command line argument.
+For each web-site resource crawled the program should extract used images (raster, as well vector images – SVG). The image thumbnails (200px max-width) should be saved  in a file system directory. For each image there should be created a record in MySQL database containing image metadata such as image thumbnail, url, filename, alternative text, title, resolution, format, etc.
+The results from crawling and extracting images from the web-site resources should allow searching and visualization of images  by a every combination of search parameters (image metadata parameters) using a web interface (image search page) implemented using golang HTML templates.
+You should implement crawling engine yourself and NOT use available implementations such as:   https://github.com/gocolly/colly,  https://github.com/altsab/gowap, etc. 
+To index images in web sites using JS single page libraries (ReactJS, Angular, Vue.js, etc.) you need a headless DOM implementation such as: 
+
+https://github.com/chromedp/chromedp , Chromedp: Golang Headless Browser Tutorial 2025 - https://www.zenrows.com/blog/chromedp
+https://github.com/go-rod/rod , Golang Headless Browser: Best Tools for Automation - https://latenode.com/blog/web-automation-scraping/headless-browser-overview/golang-headless-browser-best-tools-for-automation
+https://github.com/krpors/dom
+https://github.com/raff/godet
