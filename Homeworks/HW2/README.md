@@ -1,4 +1,4 @@
-# Go Image Crawler (Demo)
+# How to run
 
 ## Dependencies
 - Go (1.22+)
