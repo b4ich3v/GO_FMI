@@ -1,0 +1,143 @@
+{{/* index.html */}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Image Index Search</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0f14; color: #e6edf3; }
+    header { padding: 16px 20px; background: #0f1722; border-bottom: 1px solid #243244; }
+    h1 { margin: 0; font-size: 18px; }
+    .wrap { padding: 18px 20px; }
+    .card { background: #0f1722; border: 1px solid #243244; border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+    label { font-size: 12px; color: #9fb3c8; display: block; margin-bottom: 6px; }
+    input, select { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #243244; background: #0b0f14; color: #e6edf3; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+    .imgcard { background: #0f1722; border: 1px solid #243244; border-radius: 12px; padding: 10px; overflow: hidden; }
+    .imgcard img { width: 100%; height: 150px; object-fit: contain; background: #0b0f14; border-radius: 10px; }
+    .meta { margin-top: 8px; font-size: 12px; color: #9fb3c8; line-height: 1.35; }
+    .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .row2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .actions { margin-top: 10px; display: flex; gap: 10px; align-items: center; }
+    button { border: 1px solid #243244; background: #152235; color: #e6edf3; padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+    button:hover { background: #1a2a43; }
+    a { color: #7dd3fc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .pager { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .small { font-size: 12px; color: #9fb3c8; }
+    @media (max-width: 960px) { .row { grid-template-columns: repeat(2, 1fr);} }
+    @media (max-width: 520px) { .row, .row2 { grid-template-columns: 1fr;} }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Image Index Search</h1>
+  <div class="small">Total matches: {{.Total}}</div>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <form method="get" action="/">
+      <div class="row2">
+        <div>
+          <label>Image URL contains</label>
+          <input name="url" value="{{.Params.URLContains}}" placeholder="e.g. cdn.example.com/img">
+        </div>
+        <div>
+          <label>Page URL contains</label>
+          <input name="page_url" value="{{.Params.PageURLContains}}" placeholder="e.g. /products">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Filename contains</label>
+          <input name="filename" value="{{.Params.FilenameContains}}" placeholder="e.g. logo">
+        </div>
+        <div>
+          <label>Alt contains</label>
+          <input name="alt" value="{{.Params.AltContains}}" placeholder="e.g. header">
+        </div>
+        <div>
+          <label>Title contains</label>
+          <input name="title" value="{{.Params.TitleContains}}" placeholder="e.g. diagram">
+        </div>
+        <div>
+          <label>Format</label>
+          <select name="format">
+            <option value="" {{if eq .Params.FormatEquals ""}}selected{{end}}>Any</option>
+            <option value="png" {{if eq .Params.FormatEquals "png"}}selected{{end}}>png</option>
+            <option value="jpeg" {{if eq .Params.FormatEquals "jpeg"}}selected{{end}}>jpeg</option>
+            <option value="jpg" {{if eq .Params.FormatEquals "jpg"}}selected{{end}}>jpg</option>
+            <option value="gif" {{if eq .Params.FormatEquals "gif"}}selected{{end}}>gif</option>
+            <option value="webp" {{if eq .Params.FormatEquals "webp"}}selected{{end}}>webp</option>
+            <option value="svg" {{if eq .Params.FormatEquals "svg"}}selected{{end}}>svg</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Min width</label>
+          <input name="min_w" value="{{with .Params.MinWidth}}{{.}}{{end}}" placeholder="e.g. 200">
+        </div>
+        <div>
+          <label>Max width</label>
+          <input name="max_w" value="{{with .Params.MaxWidth}}{{.}}{{end}}" placeholder="e.g. 2000">
+        </div>
+        <div>
+          <label>Min height</label>
+          <input name="min_h" value="{{with .Params.MinHeight}}{{.}}{{end}}" placeholder="e.g. 200">
+        </div>
+        <div>
+          <label>Max height</label>
+          <input name="max_h" value="{{with .Params.MaxHeight}}{{.}}{{end}}" placeholder="e.g. 2000">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit">Search</button>
+        <a href="/">Reset</a>
+        <span class="small">Page {{.Params.Page}} / {{.Pages}}</span>
+      </div>
+    </form>
+  </div>
+
+  <div class="pager card">
+    <div>
+      {{if gt .Params.Page 1}}
+        <a href="{{.PagePrefix}}{{sub .Params.Page 1}}">← Prev</a>
+      {{end}}
+    </div>
+    <div class="small">
+      Showing {{len .Items}} of {{.Total}} results
+    </div>
+    <div>
+      {{if lt .Params.Page .Pages}}
+        <a href="{{.PagePrefix}}{{add .Params.Page 1}}">Next →</a>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="grid">
+    {{range .Items}}
+      <div class="imgcard">
+        <a href="/image?id={{.ID}}">
+          <img src="/thumb?id={{.ID}}" alt="">
+        </a>
+        <div class="meta">
+          <div><strong>{{if .Filename.Valid}}{{.Filename.String}}{{else}}(no filename){{end}}</strong></div>
+          <div>format: {{if .Format.Valid}}{{.Format.String}}{{else}}?{{end}}</div>
+          <div>size: {{if .Width.Valid}}{{.Width.Int64}}{{else}}?{{end}} × {{if .Height.Valid}}{{.Height.Int64}}{{else}}?{{end}}</div>
+          <div><a href="{{.URL}}" target="_blank" rel="noreferrer">open image</a></div>
+          <div><span class="small">{{.CreatedAt}}</span></div>
+        </div>
+      </div>
+    {{end}}
+  </div>
+
+</div>
+</body>
+</html>
