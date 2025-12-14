@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS images (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  url TEXT NOT NULL,
+  page_url TEXT NOT NULL,
+  filename VARCHAR(255) NULL,
+  alt TEXT NULL,
+  title TEXT NULL,
+  width INT NULL,
+  height INT NULL,
+  format VARCHAR(32) NULL,
+  thumb_path VARCHAR(512) NULL,
+  thumb_mime VARCHAR(64) NULL,
+  thumb_blob LONGBLOB NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_url_page (url(255), page_url(255)),
+  KEY idx_format (format),
+  KEY idx_filename (filename),
+  KEY idx_width (width),
+  KEY idx_height (height),
+  KEY idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
